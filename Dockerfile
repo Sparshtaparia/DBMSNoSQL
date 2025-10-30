@@ -18,17 +18,16 @@ RUN npm install --legacy-peer-deps
 COPY . .
 
 # Define required environment variables. These MUST be overridden at deployment time.
-# NOTE: The application's 'cassandra.ts' must be updated to use CASSANDRA_TOKEN/ENDPOINT
-# if it's currently looking for ASTRA_DB_...
+# --- NON-SENSITIVE CONFIGURATION VARIABLES ---
+# These variables define structural configuration and are safe to be in the image.
 ENV RABBITMQ_QUEUE="order-events"
-ENV RABBITMQ_URL="REQUIRED_RABBITMQ_URL_HERE"
-ENV CASSANDRA_ENDPOINT="REQUIRED_ENDPOINT_HERE"
-ENV CASSANDRA_TOKEN="REQUIRED_TOKEN_HERE"
 ENV CASSANDRA_KEYSPACE="smart_orders"
-ENV MONGODB_URI="REQUIRED_MONGO_URI_HERE"
-ENV REDIS_URI="REQUIRED_REDIS_URI_HERE"
+
+# --- SENSITIVE VARIABLES REMOVED FROM ENV ---
+# RABBITMQ_URL, CASSANDRA_ENDPOINT, CASSANDRA_TOKEN, MONGODB_URI, REDIS_URI
+# These must be injected using 'docker run -e' or a managed deployment tool.
 
 # CRITICAL: The command to start the long-running worker process.
-# We execute the consumer file directly using npx ts-node.
-# Assuming your main file is located at lib/db/rabbitmq-consumer.ts based on typical project structure.
-CMD ["npx", "ts-node", "lib/db/rabbitmq-consumer.ts"]
+# FIX: Use 'node --loader ts-node/esm' to instruct Node.js to use ts-node as a module loader,
+# which correctly handles the .ts extension and import/export syntax.
+CMD ["node", "--loader", "ts-node/esm", "/app/lib/db/rabbitmq-consumer.ts"]
