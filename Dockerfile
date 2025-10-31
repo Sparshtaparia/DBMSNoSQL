@@ -3,7 +3,7 @@
 # when the multi-stage build's 'npm run build' step is problematic.
 
 # Using node:20-slim for a stable base
-FROM node:20-slim
+FROM node:22-slim
 
 WORKDIR /app
 
