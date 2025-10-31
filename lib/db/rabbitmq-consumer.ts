@@ -1,7 +1,23 @@
 import { getRabbitMQChannel } from "./rabbitmq"
-import { execute } from "./cassandra" // Removed getCassandraConnection as it's unused
+
+// DO NOT import execute here, as it causes the circular dependency issue.
+// We will import it lazily inside the consumer function.
 
 let consumerRunning = false
+
+// Define a placeholder for the execute function from cassandra.ts
+type CassandraExecute = (query: string, params?: any[], options?: { prepare: boolean }) => Promise<any>;
+
+// Store the lazy-loaded module reference
+let cassandraModule: { execute: CassandraExecute } | null = null;
+
+async function getExecuteFunction(): Promise<CassandraExecute> {
+    if (!cassandraModule) {
+        // Dynamically import the module, breaking the synchronous cycle
+        cassandraModule = await import("./cassandra") as { execute: CassandraExecute };
+    }
+    return cassandraModule.execute;
+}
 
 export async function startRabbitMQConsumer() {
     if (consumerRunning) return
@@ -17,20 +33,21 @@ export async function startRabbitMQConsumer() {
         await channel.prefetch(1)
 
         // Start consuming
-        // Fix TS7006: Explicitly typing 'msg' as 'any' to resolve the implicit 'any' error
-        // without requiring external library type definitions.
         await channel.consume(queue, async (msg: any) => {
             if (!msg) return
+
+            // CRITICAL: Get the execute function lazily inside the handler
+            const execute = await getExecuteFunction();
 
             try {
                 const orderEvent = JSON.parse(msg.content.toString())
                 console.log("[RabbitMQ Consumer] Processing order event:", orderEvent.orderId)
 
-                // Define 'today' inside the consumer scope
+                // Update Cassandra with analytics
                 const today = new Date().toISOString().split("T")[0]
 
                 // Update order analytics by item
-                await execute(
+                await execute( // <-- Now uses the lazily loaded execute function
                     `UPDATE smart_orders.order_analytics
                      SET order_count = order_count + 1, total_revenue = total_revenue + ?
                      WHERE date = ? AND item_name = ?`,
@@ -39,7 +56,7 @@ export async function startRabbitMQConsumer() {
                 )
 
                 // Update daily summary
-                await execute(
+                await execute( // <-- Now uses the lazily loaded execute function
                     `UPDATE smart_orders.daily_summary
                      SET total_orders = total_orders + 1, total_revenue = total_revenue + ?
                      WHERE date = ?`,
@@ -65,10 +82,6 @@ export async function startRabbitMQConsumer() {
     }
 }
 
-/**
- * Although currently unused (TS6133), this function is kept for clean shutdown
- * purposes in a production environment.
- */
 export async function stopRabbitMQConsumer() {
     if (!consumerRunning) return
 
